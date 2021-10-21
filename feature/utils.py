@@ -7,8 +7,10 @@ Created on 2021/10/02
 import pandas as pd
 import numpy as np
 from pandas.api.types import is_numeric_dtype
-from chi2_bin import chi2_bin
-from best_ks_bin import best_ks_bin
+from .chi2_bin import chi2_bin
+from .best_ks_bin import best_ks_bin
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 
 def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=False, binned_fileds=["bin", "woe"]):
@@ -23,7 +25,7 @@ def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=
     :param lamba: 计算IV和woe用到的 调整值
     :param ret_binned: 是否计算x变量对应分箱后的结果信息
     :param binned_fileds: 返回x变量对应的计算字段 目前默认支持 返回 bin 和woe
-    :return:  tuple :  iv值 , dti分箱信息 , x映射的分箱值
+    :return:  type=tuple :  iv值 , dti分箱信息 , x映射的分箱值
     """
     df = df[[x, y]].copy()
 
@@ -41,7 +43,6 @@ def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=
         raise Warning("强烈建议在计算分箱信息的时候，设置空值的填充值")
 
     dti0 = None
-
     if x_is_numeric and isinstance(cond, list):
         bin_name = x + "_bin"
         if (independ is not None) and len(independ) > 0:
@@ -95,19 +96,20 @@ def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=
     info = {"iv": dti["iv"].sum()}
 
     if x_is_numeric:
-        info["dti"] = dti
         if ret_binned:
-            binned_fileds.insert(0, x)
+            # binned_fileds.insert(0, x)
             df_new = pd.concat([df0, df1], axis=0)
             df_new = df_new.merge(dti, on=bin_name, how="left")
             df_new.set_index("index", inplace=True)
             df_new.index.name = raw_index_name
             info["binned"] = df_new[binned_fileds].sort_index()
+        dti.rename({bin_name: x}, axis=1, inplace=True)
+        info["dti"] = dti
     else:
         mapping = mapping.merge(dti[["bin", "woe", "iv"]], on="bin", how='left')
         info["dti"] = mapping
         if ret_binned:
-            binned_fileds.insert(0, x)
+            # binned_fileds.insert(0, x)
             df_new = df.merge(dti, on="bin", how="left")
             df_new.set_index("index", inplace=True)
             df_new.index.name = raw_index_name
@@ -133,7 +135,7 @@ def calc_bin_cond(df, x, y=None, method="chi2", fill_na=None, bins=5, init_bins=
     :param init_precision: 初始化分箱时的precision
     :param print_process: 是否答应分箱的过程信息
     :return: 数值型变量为右边界的list，离散型变为 value:bin 这类键值对组成的dict
-    :return:
+    :return: type = list or dict 数值型变量为右边界的list，离散型变为 value:bin 这类键值对组成的dict
     """
     df = df[[x, y]].copy()
     if fill_na is not None:
@@ -148,3 +150,101 @@ def calc_bin_cond(df, x, y=None, method="chi2", fill_na=None, bins=5, init_bins=
                            init_precision=init_precision, print_process=print_process)
     else:
         raise ValueError("计算分箱的方式暂时只支持 chi2 和 best_ks")
+
+
+def feature_analysis(df, X, y, bins=5, init_bins=100, init_method='qcut', init_precision=3, num_fillna=-1,
+                     cate_finllna='NA', lamba=0.001, independ=[], print_process=True, report_save_path=None):
+    """
+    :param df: 数据集
+    :param x: 待分箱特征名称
+    :param y: 目标变量的名称
+    :param bins: 最终的分箱数量
+    :param init_bins:  初始化分箱的数量，若为空则钚进行初始化的分箱
+    :param init_method: 初始化分箱的方法，仅支持 qcut 和cut两种方式
+    :param init_precision: 初始化分箱时的precision
+    :param num_fillna: 数值型变量的缺失值填充值
+    :param cate_finllna: 类别性变量的缺失值填充值
+    :param lamba: 计算iv和woe 时候的 修正值
+    :param independ: 需要独立分箱的值
+    :param print_process: 是否打印分箱过程信息
+    :param report_save_path: 生成报告保存的结果
+    :return: type=dict 基本的信息列表 + 变量分箱的具体信息
+    """
+    df = df.copy()
+    N = len(df)
+    arr = []
+    binConfig_dict = {}
+    if report_save_path is not None:
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = '变量信息汇总'
+        ws2 = wb.create_sheet(title='分箱信息')
+
+    if X is None:
+        X = list(df.columns.values)
+        X.remove(y)
+
+    for x in X:
+        missing_index = pd.isna(df[x])
+        missing_count = missing_index.sum()
+        missing_rate = missing_count * 1.0 / N
+        is_numeric = is_numeric_dtype(df[x])
+
+        if is_numeric:
+            df[x] = df[x].fillna(num_fillna)
+        else:
+            df[x] = df[x].fillna(cate_finllna)
+
+        unique_arr = pd.unique(df[x])
+        unique_count = unique_arr.size
+
+        if unique_count <= 1:
+            iv = None
+            method = None
+            cond = None
+            dti = None
+        else:
+            cond1 = chi2_bin(df, x, y, bins=bins, init_bins=init_bins, init_method=init_method,
+                             init_precision=init_precision, print_process=print_process)
+            iv1, dti1, binned1 = make_bin(df, x, y, cond1, lamba=lamba, independ=independ, ret_binned=False)
+
+            cond2 = best_ks_bin(df, x, y, bins=bins, init_bins=init_bins, init_method=init_method,
+                                init_precision=init_precision, print_process=print_process)
+            iv2, dti2, binned2 = make_bin(df, x, y, cond2, lamba=lamba, independ=independ, ret_binned=False)
+
+            if iv1 >= iv2:
+                iv = iv1
+                dti = dti1
+                method = "chi2"
+                cond = cond1
+            else:
+                iv = iv2
+                dti = dti2
+                method = "best_ks"
+                cond = cond2
+
+        arr.append([x, unique_count, missing_count, missing_rate, is_numeric, iv])
+        binConfig = {"dti": dti, "method": method, "cond": cond, "independ": independ,
+                     "iv": iv}
+        binConfig_dict[x] = binConfig
+        if (report_save_path is not None) and (dti is not None):
+            if is_numeric:
+                dti_to_excel = dti.copy()
+                dti_to_excel[x] = dti_to_excel[x].astype(str)
+                for r in dataframe_to_rows(dti_to_excel, header=True, index=False):
+                    ws2.append(r)
+                ws2.append([])
+            else:
+                for r in dataframe_to_rows(dti, header=True, index=False):
+                    ws2.append(r)
+                ws2.append([])
+
+        result = pd.DataFrame(arr, columns=["var_name", "unique_count", "missing_count", "missing_rate", "is_numeric",
+                                            "iv"]).sort_values("iv", ascending=False).reset_index(drop=True)
+
+        if report_save_path is not None:
+            for r in dataframe_to_rows(result, header=True, index=False):
+                ws1.append(r)
+            wb.save(report_save_path)
+
+        return result, binConfig_dict

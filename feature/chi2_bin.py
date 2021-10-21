@@ -22,7 +22,7 @@ def chi2_bin(df, x, y, bins=5, init_bins=100, init_method='qcut', init_precision
     :param init_method: 初始化分箱的方法，仅支持 qcut 和cut两种方式
     :param init_precision: 初始化分箱时的precision
     :param print_process: 是否答应分箱的过程信息
-    :return: 数值型变量为右边界的list，离散型变为 value:bin 这类键值对组成的dict
+    :return: type = list or dict 数值型变量为右边界的list，离散型变为 value:bin 这类键值对组成的dict
     """
 
     def _check_y(y):
@@ -132,4 +132,3 @@ def chi2_bin(df, x, y, bins=5, init_bins=100, init_method='qcut', init_precision
         print("==>输出结果标准化完成耗时{:.2f}s,分箱完毕".format(time4 - time3))
 
     return result
-
