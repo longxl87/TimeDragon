@@ -11,7 +11,8 @@ import numpy as np
 import time
 
 
-def best_ks_bin(df, x, y, bins=5, init_bins=100, init_method='qcut', init_precision=3, print_process=True):
+def best_ks_bin(df: pd.DataFrame, x: str, y: str, bins=5, init_bins=100, init_method='qcut', init_precision=3,
+                print_process=True):
     """
     best_ks 分箱
     :param df: 数据集

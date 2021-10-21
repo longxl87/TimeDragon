@@ -11,9 +11,11 @@ from .chi2_bin import chi2_bin
 from .best_ks_bin import best_ks_bin
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
+import warnings
 
 
-def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=False, binned_fileds=["bin", "woe"]):
+def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=False,
+             binned_fileds=["bin", "woe"]):
     """
     根据分箱条件，计算iv,分箱信息，
     :param df: 数据集
@@ -40,18 +42,20 @@ def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=
     if fill_na is not None:
         df[x] = df[x].fillna(fill_na)
     else:
-        raise Warning("强烈建议在计算分箱信息的时候，设置空值的填充值")
+        warnings.warn("强烈建议在计算分箱信息的时候，设置空值的填充值")
 
-    dti0 = None
     if x_is_numeric and isinstance(cond, list):
         bin_name = x + "_bin"
         if (independ is not None) and len(independ) > 0:
             df0 = df[df[x].isin(independ)]
-            dti0 = pd.crosstab(df0[x], df0[y]).reset_index(). \
-                rename({0: "negative", 1: "positive", x: bin_name}, axis=1)
-            dti0["independ"] = True
-            if ret_binned:
-                df0.loc[:, bin_name] = df0[x]
+            if len(df0) >0:
+                dti0 = pd.crosstab(df0[x], df0[y]).reset_index(). \
+                    rename({0: "negative", 1: "positive", x: bin_name}, axis=1)
+                dti0["independ"] = True
+                if ret_binned:
+                    df0.loc[:, bin_name] = df0[x]
+            else:
+                dti0 = None
             df1 = df[~df[x].isin(independ)]
         else:
             df1 = df
@@ -64,7 +68,7 @@ def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=
             dti = pd.concat([dti0, dti1], axis=0)
         else:
             dti = dti1
-        dti = dti.reset_index(drop=True).reset_index().rename({index_name: "bin"}, axis=1)
+        dti = dti.reset_index(drop=True).reset_index().rename({"index":"bin"}, axis=1)
 
     elif (not x_is_numeric) and isinstance(cond, dict):
         if (independ is not None) and len(independ) > 0:
@@ -99,11 +103,12 @@ def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=
         if ret_binned:
             # binned_fileds.insert(0, x)
             df_new = pd.concat([df0, df1], axis=0)
-            df_new = df_new.merge(dti, on=bin_name, how="left")
-            df_new.set_index("index", inplace=True)
+            df_new = df_new.merge(dti,on=bin_name, how="left")
+            df_new.set_index("index", inplace=True,)
             df_new.index.name = raw_index_name
             info["binned"] = df_new[binned_fileds].sort_index()
         dti.rename({bin_name: x}, axis=1, inplace=True)
+        dti = dti[["bin",x,"negative","positive","positive_rate","woe","iv"]]
         info["dti"] = dti
     else:
         mapping = mapping.merge(dti[["bin", "woe", "iv"]], on="bin", how='left')
@@ -152,8 +157,9 @@ def calc_bin_cond(df, x, y=None, method="chi2", fill_na=None, bins=5, init_bins=
         raise ValueError("计算分箱的方式暂时只支持 chi2 和 best_ks")
 
 
-def feature_analysis(df, X, y, bins=5, init_bins=100, init_method='qcut', init_precision=3, num_fillna=-1,
-                     cate_finllna='NA', lamba=0.001, independ=[], print_process=True, report_save_path=None):
+def feature_analysis(df: pd.DataFrame, X: list, y: str, bins=5, init_bins=100, init_method='qcut', init_precision=3,
+                     num_fillna=-1, cate_finllna='NA', lamba=0.001, independ=[], print_process=True,
+                     report_save_path=None):
     """
     :param df: 数据集
     :param x: 待分箱特征名称
@@ -168,7 +174,7 @@ def feature_analysis(df, X, y, bins=5, init_bins=100, init_method='qcut', init_p
     :param independ: 需要独立分箱的值
     :param print_process: 是否打印分箱过程信息
     :param report_save_path: 生成报告保存的结果
-    :return: type=dict 基本的信息列表 + 变量分箱的具体信息
+    :return: type=tuple  (dti:Dataframe 基本的信息列表 , bin_config_dict:dict 变量分箱的具体信息)
     """
     df = df.copy()
     N = len(df)
@@ -191,9 +197,11 @@ def feature_analysis(df, X, y, bins=5, init_bins=100, init_method='qcut', init_p
         is_numeric = is_numeric_dtype(df[x])
 
         if is_numeric:
-            df[x] = df[x].fillna(num_fillna)
+            fill_na = num_fillna
+            df.loc[:, x] = df[x].fillna(num_fillna)
         else:
-            df[x] = df[x].fillna(cate_finllna)
+            fill_na = cate_finllna
+            df.loc[:, x] = df[x].fillna(cate_finllna)
 
         unique_arr = pd.unique(df[x])
         unique_count = unique_arr.size
@@ -206,11 +214,11 @@ def feature_analysis(df, X, y, bins=5, init_bins=100, init_method='qcut', init_p
         else:
             cond1 = chi2_bin(df, x, y, bins=bins, init_bins=init_bins, init_method=init_method,
                              init_precision=init_precision, print_process=print_process)
-            iv1, dti1, binned1 = make_bin(df, x, y, cond1, lamba=lamba, independ=independ, ret_binned=False)
+            iv1, dti1, binned1 = make_bin(df, x, y, cond1, lamba=lamba, independ=independ, ret_binned=True,fill_na=fill_na)
 
             cond2 = best_ks_bin(df, x, y, bins=bins, init_bins=init_bins, init_method=init_method,
                                 init_precision=init_precision, print_process=print_process)
-            iv2, dti2, binned2 = make_bin(df, x, y, cond2, lamba=lamba, independ=independ, ret_binned=False)
+            iv2, dti2, binned2 = make_bin(df, x, y, cond2, lamba=lamba, independ=independ, ret_binned=True,fill_na=fill_na)
 
             if iv1 >= iv2:
                 iv = iv1
@@ -242,9 +250,9 @@ def feature_analysis(df, X, y, bins=5, init_bins=100, init_method='qcut', init_p
         result = pd.DataFrame(arr, columns=["var_name", "unique_count", "missing_count", "missing_rate", "is_numeric",
                                             "iv"]).sort_values("iv", ascending=False).reset_index(drop=True)
 
-        if report_save_path is not None:
-            for r in dataframe_to_rows(result, header=True, index=False):
-                ws1.append(r)
-            wb.save(report_save_path)
+    if report_save_path is not None:
+        for r in dataframe_to_rows(result, header=True, index=False):
+            ws1.append(r)
+        wb.save(report_save_path)
 
-        return result, binConfig_dict
+    return result, binConfig_dict
