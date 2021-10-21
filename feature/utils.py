@@ -7,45 +7,82 @@ Created on 2021/10/02
 import pandas as pd
 import numpy as np
 from pandas.api.types import is_numeric_dtype
+from chi2_bin import chi2_bin
+from best_ks_bin import best_ks_bin
 
 
-def bin_info(df, x, y, cond, fill_NA=None, independ=[], lamba=0.001):
+def make_bin(df, x, y, cond, fill_na=None, independ=[], lamba=0.001, ret_binned=False, binned_fileds=["bin", "woe"]):
+    """
+    根据分箱条件，计算iv,分箱信息，
+    :param df: 数据集
+    :param x: 待分箱特征名称
+    :param y: 目标变量的名称
+    :param cond: 分箱条件，数值型变量为右边界的list，离散型变为 value:bin 这类键值对组成的dict
+    :param fill_na: 空值的填充结果
+    :param independ: 需独立计算分箱的变量值
+    :param lamba: 计算IV和woe用到的 调整值
+    :param ret_binned: 是否计算x变量对应分箱后的结果信息
+    :param binned_fileds: 返回x变量对应的计算字段 目前默认支持 返回 bin 和woe
+    :return:  tuple :  iv值 , dti分箱信息 , x映射的分箱值
+    """
     df = df[[x, y]].copy()
-    x_is_numeric = is_numeric_dtype(df)
 
-    if fill_NA is not None:
-        df[x] = df[x].fillna(fill_NA)
+    if ret_binned:
+        raw_index_name = df.index.name
+        df = df.reset_index()
+        index_name = "index" if raw_index_name is None else raw_index_name
+        binned_fileds = binned_fileds.copy()
+
+    x_is_numeric = is_numeric_dtype(df[x])
+
+    if fill_na is not None:
+        df[x] = df[x].fillna(fill_na)
+    else:
+        raise Warning("强烈建议在计算分箱信息的时候，设置空值的填充值")
 
     dti0 = None
-    bin_name = x + "_bin"
+
     if x_is_numeric and isinstance(cond, list):
+        bin_name = x + "_bin"
         if (independ is not None) and len(independ) > 0:
             df0 = df[df[x].isin(independ)]
             dti0 = pd.crosstab(df0[x], df0[y]).reset_index(). \
                 rename({0: "negative", 1: "positive", x: bin_name}, axis=1)
             dti0["independ"] = True
+            if ret_binned:
+                df0.loc[:, bin_name] = df0[x]
             df1 = df[~df[x].isin(independ)]
         else:
             df1 = df
-        df1[bin_name] = pd.cut(df1[x], cond, right=True)
+
+        df1.loc[:, bin_name] = pd.cut(df1[x], cond, right=True)
         dti1 = pd.crosstab(df1[bin_name], df1[y]).reset_index(). \
             rename({0: "negative", 1: "positive"}, axis=1)
         dti1["independ"] = False
         if dti0 is not None:
-            dti = pd.concat([dti0, df1], axis=1)
+            dti = pd.concat([dti0, dti1], axis=0)
         else:
             dti = dti1
+        dti = dti.reset_index(drop=True).reset_index().rename({index_name: "bin"}, axis=1)
 
     elif (not x_is_numeric) and isinstance(cond, dict):
         if (independ is not None) and len(independ) > 0:
-            max_values = max(cond.values())
+            min_values = min(cond.values())
             for i in range(len(independ)):
-                cond[independ[i]] = max_values + i + 1
+                cond[independ[-(1 + i)]] = min_values - (i + 1)
         mapping = pd.DataFrame.from_dict(cond, orient="index").reset_index()
-        mapping.columns = [x, bin_name]
+        mapping.columns = [x, "bin"]
+        mapping = mapping
+
         df = df.merge(mapping, on=x, how="left")
-        dti = pd.crosstab(df[bin_name], df[y]).reset_index(). \
-            rename({0: "negative", 1: "positive"}, axis=1)
+        mapping = pd.crosstab([df["bin"], df[x]], df[y]).reset_index(). \
+            rename({0: "negative", 1: "positive"}, axis=1). \
+            sort_values("bin")
+        mapping["positive_rate"] = mapping["positive"] / (mapping["positive"] + mapping["negative"])
+
+        dti = mapping.groupby("bin")[["negative", "positive"]].sum().reset_index()
+        # dti = pd.crosstab(df["bin"], df[y]).reset_index(). \
+        #     rename({0: "negative", 1: "positive"}, axis=1)
     else:
         raise ValueError("数字型变量cond必须为list，类别型变量cond必须为dict")
 
@@ -55,11 +92,59 @@ def bin_info(df, x, y, cond, fill_NA=None, independ=[], lamba=0.001):
     dti["woe"] = np.log(((dti["positive"] / p_t) + lamba) / ((dti["negative"] / n_t) + lamba))
     dti["iv"] = ((dti["positive"] / p_t) - (dti["negative"] / n_t)) * dti["woe"]
 
-    info = {"iv": dti["iv"].sum(), "dti": dti}
+    info = {"iv": dti["iv"].sum()}
 
-    if not x_is_numeric:
-        mapping = mapping.merge(dti, on=bin_name, how='left')
-        mapping = mapping[[x, bin_name, "woe"]]
-        info["mapping"] = mapping
+    if x_is_numeric:
+        info["dti"] = dti
+        if ret_binned:
+            binned_fileds.insert(0, x)
+            df_new = pd.concat([df0, df1], axis=0)
+            df_new = df_new.merge(dti, on=bin_name, how="left")
+            df_new.set_index("index", inplace=True)
+            df_new.index.name = raw_index_name
+            info["binned"] = df_new[binned_fileds].sort_index()
+    else:
+        mapping = mapping.merge(dti[["bin", "woe", "iv"]], on="bin", how='left')
+        info["dti"] = mapping
+        if ret_binned:
+            binned_fileds.insert(0, x)
+            df_new = df.merge(dti, on="bin", how="left")
+            df_new.set_index("index", inplace=True)
+            df_new.index.name = raw_index_name
+            info["binned"] = df_new[binned_fileds].sort_index()
 
-    return info
+    if ret_binned:
+        return info["iv"], info["dti"], info["binned"]
+    else:
+        return info["iv"], info["dti"], None
+
+
+def calc_bin_cond(df, x, y=None, method="chi2", fill_na=None, bins=5, init_bins=100,
+                  init_method='qcut', init_precision=3, print_process=True):
+    """
+    在外部接口封装了chi2_bin 与  best_ks_bin
+    :param df: 数据集
+    :param x: 待分箱特征名称
+    :param y: 目标变量的名称
+    :param method: chi2 和 best_ks
+    :param bins: 最终的分箱数量
+    :param init_bins:  初始化分箱的数量，若为空则钚进行初始化的分箱
+    :param init_method: 初始化分箱的方法，仅支持 qcut 和cut两种方式
+    :param init_precision: 初始化分箱时的precision
+    :param print_process: 是否答应分箱的过程信息
+    :return: 数值型变量为右边界的list，离散型变为 value:bin 这类键值对组成的dict
+    :return:
+    """
+    df = df[[x, y]].copy()
+    if fill_na is not None:
+        df[x] = df[x].fillna(fill_na)
+    else:
+        raise Warning("计算分箱时，若不设置fill_na，空值会被过滤")
+    if method == "chi2":
+        return chi2_bin(df, x, y, bins=bins, init_bins=init_bins, init_method=init_method,
+                        init_precision=init_precision, print_process=print_process)
+    elif method == "best_ks":
+        return best_ks_bin(df, x, y, bins=bins, init_bins=init_bins, init_method=init_method,
+                           init_precision=init_precision, print_process=print_process)
+    else:
+        raise ValueError("计算分箱的方式暂时只支持 chi2 和 best_ks")
