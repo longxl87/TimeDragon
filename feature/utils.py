@@ -136,7 +136,7 @@ def feature_analysis(df: pd.DataFrame, X: list, y: str, bins=5, init_bins=100, i
 
 
 def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, lamba=0.001, ret_binned=False,
-             binned_fileds=["bin", "woe"], woe=None):
+             binned_fileds=["bin", "woe"], woe=None,precision=4):
     """
     :param df:
     :param x:
@@ -165,10 +165,11 @@ def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, lamba=0.001, 
 
     bin_name = x + "_bin"
     if x_is_numeric and isinstance(cond, list):
+        cond = list(np.round(cond,precision))
         bin_rs = pd.DataFrame({bin_name: pd.IntervalIndex.from_breaks(cond, closed="right")}) \
             .reset_index() \
             .rename({"index": "bin"}, axis=1)
-        df[bin_name] = pd.cut(df[x], cond, right=True)
+        df[bin_name] = pd.cut(df[x], cond, right=True,precision=precision)
         dti = pd.crosstab(df[bin_name], df[y]) \
             .reset_index() \
             .rename({0: "negative", 1: "positive"}, axis=1)
@@ -195,7 +196,7 @@ def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, lamba=0.001, 
     if woe is None:
         bin_rs["woe"] = np.log(((bin_rs["positive"] / p_t) + lamba) / ((bin_rs["negative"] / n_t) + lamba))
     else:
-        woe_rs = pd.DataFrame.from_dict(woe, orient="index").reset_index().reset_index({"index": "bin", 0: "woe"})
+        woe_rs = pd.DataFrame.from_dict(woe, orient="index").reset_index().rename({"index": "bin", 0: "woe"},axis=1)
         bin_rs = bin_rs.merge(woe_rs, on="bin", how="left")
     bin_rs["iv"] = ((bin_rs["positive"] / p_t) - (bin_rs["negative"] / n_t)) * np.log(
         ((bin_rs["positive"] / p_t) + lamba) / ((bin_rs["negative"] / n_t) + lamba))
