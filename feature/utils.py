@@ -395,7 +395,7 @@ def feature_analysis_old(df: pd.DataFrame, X: list, y: str, bins=5, init_bins=10
     df = df.copy()
     N = len(df)
     arr = []
-    binConfig_dict = {}
+    bin_config_dict = {}
     if report_save_path is not None:
         wb = Workbook()
         ws1 = wb.active
@@ -452,7 +452,7 @@ def feature_analysis_old(df: pd.DataFrame, X: list, y: str, bins=5, init_bins=10
         arr.append([x, unique_count, missing_count, missing_rate, is_numeric, iv])
         binConfig = {"dti": dti, "method": method, "cond": cond, "independ": independ,
                      "iv": iv}
-        binConfig_dict[x] = binConfig
+        bin_config_dict[x] = binConfig
         if (report_save_path is not None) and (dti is not None):
             if is_numeric:
                 dti_to_excel = dti.copy()
@@ -473,4 +473,4 @@ def feature_analysis_old(df: pd.DataFrame, X: list, y: str, bins=5, init_bins=10
             ws1.append(r)
         wb.save(report_save_path)
 
-    return result, binConfig_dict
+    return result, bin_config_dict
