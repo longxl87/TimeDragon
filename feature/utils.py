@@ -136,18 +136,22 @@ def feature_analysis(df: pd.DataFrame, X: list, y: str, bins=5, init_bins=100, i
 
 
 def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, lamba=0.001, ret_binned=False,
-             binned_fileds=["bin", "woe"], woe=None,precision=4):
+             binned_fileds=["bin", "woe"], woe=None, precision=4):
     """
-    :param df:
-    :param x:
-    :param y:
-    :param cond:
-    :param fill_na:
-    :param lamba:
-    :param ret_binned:
-    :param binned_fileds:
-    :param woe: 预设的woe 结果，格式为 { bin_num:woe值 }，woe编码时使用
-    :return:
+    根据分箱条件，计算iv,分箱信息，
+
+    :param df: 数据集
+    :param x: 待分箱特征名称
+    :param y: 目标变量的名称
+    :param cond: 分箱条件，数值型变量为右边界的list（左开右闭），离散型变为 value:bin 这类键值对组成的dict。
+                 为了保证代码的一致性，现在取消了independ输入选项，若想要有独立的分箱，请在cond中考虑
+    :param fill_na: 空值的填充结果
+    :param lamba: 计算IV和woe用到的 调整值
+    :param ret_binned: 是否计算x变量对应分箱后的结果信息
+    :param binned_fileds: 返回x变量对应的计算字段 目前默认支持 返回 bin 和woe
+    :param precision: 会根据该参数对边界的数值进行四舍五入，规范化边界的精度
+    :param woe: 若想要根据已有的woe数据对变量进行编码，请在该参数中设置，基本格式为 bin:woe dict映射
+    :return:  type=tuple :  iv值 , dti分箱信息 , x映射的分箱值
     """
     df = df[[x, y]].copy()
     x_is_numeric = is_numeric_dtype(df[x])
@@ -165,11 +169,11 @@ def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, lamba=0.001, 
 
     bin_name = x + "_bin"
     if x_is_numeric and isinstance(cond, list):
-        cond = list(np.round(cond,precision))
+        cond = list(np.round(cond, precision))
         bin_rs = pd.DataFrame({bin_name: pd.IntervalIndex.from_breaks(cond, closed="right")}) \
             .reset_index() \
             .rename({"index": "bin"}, axis=1)
-        df[bin_name] = pd.cut(df[x], cond, right=True,precision=precision)
+        df[bin_name] = pd.cut(df[x], cond, right=True, precision=precision)
         dti = pd.crosstab(df[bin_name], df[y]) \
             .reset_index() \
             .rename({0: "negative", 1: "positive"}, axis=1)
@@ -196,7 +200,7 @@ def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, lamba=0.001, 
     if woe is None:
         bin_rs["woe"] = np.log(((bin_rs["positive"] / p_t) + lamba) / ((bin_rs["negative"] / n_t) + lamba))
     else:
-        woe_rs = pd.DataFrame.from_dict(woe, orient="index").reset_index().rename({"index": "bin", 0: "woe"},axis=1)
+        woe_rs = pd.DataFrame.from_dict(woe, orient="index").reset_index().rename({"index": "bin", 0: "woe"}, axis=1)
         bin_rs = bin_rs.merge(woe_rs, on="bin", how="left")
     bin_rs["iv"] = ((bin_rs["positive"] / p_t) - (bin_rs["negative"] / n_t)) * np.log(
         ((bin_rs["positive"] / p_t) + lamba) / ((bin_rs["negative"] / n_t) + lamba))
@@ -208,8 +212,8 @@ def make_bin(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, lamba=0.001, 
         bin_rs = mapping.merge(bin_rs[["bin", "woe", "iv"]], on="bin", how="left")
 
     info["dti"] = bin_rs[[bin_name, "bin", "negative", "positive", "positive_rate", "woe", "iv"]]
-    info["dti"].fillna(0,inplace=True)
-    info["dti"].sort_values(by="bin",inplace=True)
+    info["dti"].fillna(0, inplace=True)
+    info["dti"].sort_values(by="bin", inplace=True)
     info["woe"] = woe
     if ret_binned:
         if x_is_numeric:
@@ -297,8 +301,6 @@ def make_bin_old(df: pd.DataFrame, x: str, y: str, cond, fill_na=None, independ=
         mapping["positive_rate"] = mapping["positive"] / (mapping["positive"] + mapping["negative"])
 
         dti = mapping.groupby("bin")[["negative", "positive"]].sum().reset_index()
-        # dti = pd.crosstab(df["bin"], df[y]).reset_index(). \
-        #     rename({0: "negative", 1: "positive"}, axis=1)
     else:
         raise ValueError("数字型变量cond必须为list，类别型变量cond必须为dict")
 
@@ -351,6 +353,7 @@ def calc_bin_cond(df, x, y=None, method="chi2", fill_na=None, bins=5, init_bins=
     :param y: 目标变量的名称
     :param method: chi2 和 best_ks
     :param bins: 最终的分箱数量
+    :param fill_na: 缺失值填充值
     :param init_bins:  初始化分箱的数量，若为空则钚进行初始化的分箱
     :param init_method: 初始化分箱的方法，仅支持 qcut 和cut两种方式
     :param init_precision: 初始化分箱时的precision
@@ -369,8 +372,17 @@ def calc_bin_cond(df, x, y=None, method="chi2", fill_na=None, bins=5, init_bins=
     elif method == "best_ks":
         return best_ks_bin(df, x, y, bins=bins, init_bins=init_bins, init_method=init_method,
                            init_precision=init_precision, print_process=print_process)
+    elif method == "qcut":
+        arr = pd.qcut(df[x],bins,precision=init_precision,duplicates="drop",retbins=True)[1].tolist()
+        arr[0] = -np.inf
+        arr[len(arr)-1] = np.inf
+        return arr
+    elif method == "cut":
+        arr = pd.cut(df[x], bins, precision=init_precision, duplicates="drop", retbins=True)[1].tolist()
+        arr[0] = -np.inf
+        arr[len(arr) - 1] = np.inf
     else:
-        raise ValueError("计算分箱的方式暂时只支持 chi2 和 best_ks")
+        raise ValueError("计算分箱的方式暂时只支持 chi2,best_ks,qcut和cut，且qcut和cut 只支持数值型变量")
 
 
 def feature_analysis_old(df: pd.DataFrame, X: list, y: str, bins=5, init_bins=100, init_method='qcut', init_precision=3,
