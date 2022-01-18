@@ -22,20 +22,23 @@ class Discretization(metaclass=ABCMeta):
     离散化基类，包含了基本的参数定义和特征预处理的方法
     Parameters
     ----------
-    max_bins: 最终的分箱数量
-    init_bins:  初始化分箱的数量，若为空则钚进行初始化的分箱
-    init_method: 初始化分箱的方法，仅支持 qcut 和cut两种方式
-    precision: 初始化分箱时的precision
-    print_process: 是否答应分箱的过程信息
+    max_bin: int 最大分箱数量
+    init_bin: int  初始化分箱的数量，若为空则钚进行初始化的分箱
+    init_method : str 初始化方法默认为'qcut' , 初始化分箱方法，目前仅支持 'qcut' 和 'cut'
+    precision : 小数精度，默认为3
+    print_process : bool 是否答应分箱的过程信息
+    positive_label : 正样本的定义，根据target的数据类型来定
     """
 
-    def __init__(self, max_bins=12, init_bins=100, init_method='qcut', precision=4, print_process=False):
-        self.max_bins = max_bins
-        self.init_bins = init_bins
+    def __init__(self, max_bin=12, init_bin=100, init_method='qcut', precision=3, print_process=False,
+                 positive_label=1):
+        self.max_bin = max_bin
+        self.init_bin = init_bin
         self.init_method = init_method
         self.precision = precision
         self.print_process = print_process
-        # self.is_numeric = True
+        self.positive_label = positive_label
+        self.is_numeric = True
 
     def data_init(self, dat, var_name, target):
         """
@@ -49,8 +52,12 @@ class Discretization(metaclass=ABCMeta):
 
         self._y_check(dat[target])
 
-        self.is_numeric = self.is_numeric = is_numeric_dtype(dat[var_name])
+        self.is_numeric = is_numeric_dtype(dat[var_name])
         self._x_check(dat[var_name])
+
+
+
+        count_df = pd.crosstab(dat[var_name],dat[target])
 
     def _x_check(self, dat, var_name):
         """
@@ -166,7 +173,12 @@ class PlotUtils(object):
     def auc_ks(self, x, y):
         pass
 
-# if __name__ == "__main__":
+
+if __name__ == "__main__":
+    bsetks = BestKS()
+    print(bsetks.precision)
+    bsetks.precision = 4
+    print(bsetks.precision)
 #     disct = BestKS()
 #     df = pd.read_excel("credit_review_new_all_0922.xlsx")
 #     # disct.bestDsct(df, "a", "b")

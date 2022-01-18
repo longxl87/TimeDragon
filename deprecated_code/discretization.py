@@ -267,7 +267,7 @@ class SuperDiscretization(Discretization):
         
         # 排序：离散变量按照pos_ratio排序，连续变量按照index排序
         if ratio_indicator:
-            count['pos_ratio'] = count[1].sum(axis=1) * 1.0 / total  # 计算正例比例
+            count['pos_ratio'] = count[1] * 1.0 / total  # 计算正例比例
             count = count.sort_values('pos_ratio')  # 离散变量按照pos_ratio排序
             count = count.drop(columns=['pos_ratio'])
         else:
@@ -785,48 +785,56 @@ class bestKSDsct(SplitDsct):
 
 if __name__ == '__main__':
     # 数据导入
-    from sklearn.datasets import load_iris
-    
-    data = load_iris()
-    x = data.data
-    y = data.target
-    # y = np.where(y > 1, 1, y)
-    data = pd.DataFrame(x, columns=['A', 'B', 'C', 'D'])
-    data['E'] = y
-    
-    # 离散化
-    dsct_method_mapping = {'chiMerge': chiMerge, 'chi2': chi2Merge, 'bestChi': bestChi, 'entropy': entropyDsct,
-                           'bestKS': bestKSDsct, 'cluster': clusterDsct, 'equal_wide': equalWide,
-                           'equal_freq': equalFreq}
-    
-    # test1
-    dsct_method = 'bestKS' #'entropy' #'bestChi'  #'equal_wide'
-    binning_estimator = dsct_method_mapping[dsct_method](max_interval=12, feature_type=0)
-    group = binning_estimator.dsct_pipeline(data=data, var_name='A', var_name_target='E')
-    # print(group)
-    
-    # test2
-    import traceback
-    dsct_methods = dsct_method_mapping.keys()
-    for dsct_method in dsct_methods:
-        # print(dsct_method, ':')
-        binning_estimator = dsct_method_mapping[dsct_method](max_interval=12, feature_type=1)
-        try:
-            group = binning_estimator.dsct_pipeline(data=data, var_name='A', var_name_target='E')
-            # print(group)
-        except Exception as e:
-            pass
-            # print(traceback.format_exc())
-        
-        # print('*' * 100)
-        binning_estimator = dsct_method_mapping[dsct_method](max_interval=12, feature_type=0)
-        try:
-            if dsct_method in ['equal_wide', 'equal_freq']:
-                group = binning_estimator.dsct_pipeline(data=data, var_name='A')
-            else:
-                group = binning_estimator.dsct_pipeline(data=data, var_name='A', var_name_target='E')
-            # print(group)
-        except Exception as e:
-            pass
+    data = pd.read_excel("../data/credit_data.xlsx")
+    print(data.shape)
+    x = data["continent"]
+    y = data["def_pd10"]
+    binning_estimator = bestChi(max_interval=12, feature_type=1)
+    group = binning_estimator.dsct_pipeline(data=data, var_name='continent', var_name_target='def_pd10')
+    print(group)
+
+    # from sklearn.datasets import load_iris
+    #
+    # data = load_iris()
+    # x = data.data
+    # y = data.target
+    # # y = np.where(y > 1, 1, y)
+    # data = pd.DataFrame(x, columns=['A', 'B', 'C', 'D'])
+    # data['E'] = y
+    #
+    # # 离散化
+    # dsct_method_mapping = {'chiMerge': chiMerge, 'chi2': chi2Merge, 'bestChi': bestChi, 'entropy': entropyDsct,
+    #                        'bestKS': bestKSDsct, 'cluster': clusterDsct, 'equal_wide': equalWide,
+    #                        'equal_freq': equalFreq}
+    #
+    # # test1
+    # dsct_method = 'bestKS' #'entropy' #'bestChi'  #'equal_wide'
+    # binning_estimator = dsct_method_mapping[dsct_method](max_interval=12, feature_type=0)
+    # group = binning_estimator.dsct_pipeline(data=data, var_name='A', var_name_target='E')
+    # # print(group)
+    #
+    # # test2
+    # import traceback
+    # dsct_methods = dsct_method_mapping.keys()
+    # for dsct_method in dsct_methods:
+    #     # print(dsct_method, ':')
+    #     binning_estimator = dsct_method_mapping[dsct_method](max_interval=12, feature_type=1)
+    #     try:
+    #         group = binning_estimator.dsct_pipeline(data=data, var_name='A', var_name_target='E')
+    #         # print(group)
+    #     except Exception as e:
+    #         pass
+    #         # print(traceback.format_exc())
+    #
+    #     # print('*' * 100)
+    #     binning_estimator = dsct_method_mapping[dsct_method](max_interval=12, feature_type=0)
+    #     try:
+    #         if dsct_method in ['equal_wide', 'equal_freq']:
+    #             group = binning_estimator.dsct_pipeline(data=data, var_name='A')
+    #         else:
+    #             group = binning_estimator.dsct_pipeline(data=data, var_name='A', var_name_target='E')
+    #         # print(group)
+    #     except Exception as e:
+    #         pass
             # print(traceback.format_exc())
         # print('*' * 100)
