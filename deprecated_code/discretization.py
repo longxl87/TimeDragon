@@ -785,12 +785,24 @@ class bestKSDsct(SplitDsct):
 
 if __name__ == '__main__':
     # 数据导入
-    data = pd.read_excel("../data/credit_data.xlsx")
-    print(data.shape)
-    x = data["continent"]
-    y = data["def_pd10"]
+    # data = pd.read_excel("../data/credit_data.xlsx")
+    # print(data.shape)
+    # x = data["continent"]
+    # y = data["def_pd10"]
+    # binning_estimator = bestChi(max_interval=12, feature_type=1)
+    # group = binning_estimator.dsct_pipeline(data=data, var_name='continent', var_name_target='def_pd10')
+    # print(group)
+    #
+    # group = binning_estimator.dsct_pipeline(data=data, var_name='apply_age', var_name_target='def_pd10')
+    # print(group)
+
+
+    x = np.random.randint(0,1000,10000)
+    y = np.random.randint(0,2,10000)
+    data = pd.DataFrame({"x":x,"y":y})
     binning_estimator = bestChi(max_interval=12, feature_type=1)
-    group = binning_estimator.dsct_pipeline(data=data, var_name='continent', var_name_target='def_pd10')
+    group = binning_estimator.dsct_pipeline(data=data, var_name='x', var_name_target='y')
+
     print(group)
 
     # from sklearn.datasets import load_iris
