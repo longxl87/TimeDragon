@@ -30,10 +30,11 @@ class Discretization(metaclass=ABCMeta):
     precision : 小数精度，默认为3
     print_process : bool 是否答应分箱的过程信息
     positive_label : 正样本的定义，根据target的数据类型来定
+    bestDsct_limit : 限制最优分箱算法最小的分箱数量
     """
 
     def __init__(self, max_bin=12, init_thredhold=100, init_method='qcut', precision=3, print_process=False,
-                 positive_label=1, negative_label=0, max_bestDsct_bin=4):
+                 positive_label=1, negative_label=0, bestDsct_limit=4):
         self.max_bin = max_bin
         self.init_thredhold = init_thredhold
         self.init_method = init_method
@@ -41,18 +42,7 @@ class Discretization(metaclass=ABCMeta):
         self.print_process = print_process
         self.positive_label = positive_label
         self.negative_label = negative_label
-
-    @abstractmethod
-    def dsct(self, dat: pd.DataFrame, var_name: str, target: str):
-        """
-        抽象接口，定义分箱方法的名称和入参，只能调用子类实现
-        Parameters
-        ----------
-        dat: 数据集，格式必须为pd.DataFrame
-        var_name:  待分箱的因变量
-        target: 目标变量
-        """
-        raise NotImplementedError("该方法只为定义基本的函数接口，不可直接调用，请使用子类实现的方法")
+        self.bestDsct_limit = bestDsct_limit
 
     def _init_data(self, data, var_name, target):
         """
@@ -61,32 +51,7 @@ class Discretization(metaclass=ABCMeta):
         2、判断x是否为数值类型
         3、初始化数据结果
         """
-        # assert var_name in dat.columns, "数据中不包含变量%s，请检查数据" % (var_name)
-        # assert var_name != target, "因变量和自变量必须是不同的变量"
-        #
-        # dat = dat[[var_name, target]].copy()
-        #
-        # self._y_check(dat[target])
-        #
-        # is_numeric = is_numeric_dtype(dat[var_name])
-        #
-        # # unique = self.unique_noNA(dat[var_name])
-        #
-        # if is_numeric:
-        #     dat[var_name] = pd.qcut(dat[var_name], self.init_thredhold, duplicates="drop", precision=self.precision)
-        #     dti = pd.crosstab(dat[var_name], dat[target], dropna=True)
-        #     dti["positive_rate"] = dti[self.positive_label] / dti.sum(axis=1)
-        #     dti["bin"] = dti.index.map(lambda x: x.right)
-        #     mapping = None
-        # else:
-        #     dti = pd.crosstab(dat[var_name], dat[target], dropna=True)
-        #     dti["positive_rate"] = dti[self.positive_label] / dti.sum(axis=1)
-        #     dti = dti.sort_values(by="positive_rate").reset_index().reset_index().rename({"index": "bin"},
-        #                                                                                  axis=1)
-        #     mapping = dti[[var_name, "bin"]].copy()
-        #
-        # return dti[["bin", self.negative_label, self.positive_label]], var_name, mapping, is_numeric
-        if self.print_process: print("开始对变量{}进行卡方分箱:".format(x, ))
+        if self.print_process: print("开始对变量{}进行卡方分箱:".format(var_name))
 
         time0 = time.time()
         assert var_name in data.columns, "数据中不包含变量%s，请检查数据" % (var_name)
@@ -191,10 +156,11 @@ class Discretization(metaclass=ABCMeta):
         #     raise ValueError('目标变量必须是二元的！')
         # if self.positive_label not in y:
         #     raise ValueError('请根据设定positive_label')
+        unique = y.unique()
         assert y_type in ['binary'], "目标必须是二分类"
         assert not y.hasnans, "target中不能包含缺失值，请优先进行填充"
-        assert self.positive_label in y, "请根据target正确设定positive_label"
-        assert self.negative_label in y, "请根据target的结果正确设定negative_label"
+        assert self.positive_label in unique, "请根据target正确设定positive_label"
+        assert self.negative_label in unique, "请根据target的结果正确设定negative_label"
 
     def _check_target_type(self, y):
         """
@@ -214,14 +180,26 @@ class Discretization(metaclass=ABCMeta):
         """
         pass
 
+    @abstractmethod
+    def dsct(self, dat: pd.DataFrame, var_name: str, target: str):
+        """
+        抽象接口，定义分箱方法的名称和入参，只能调用子类实现
+        Parameters
+        ----------
+        dat: 数据集，格式必须为pd.DataFrame
+        var_name:  待分箱的因变量
+        target: 目标变量
+        """
+        raise NotImplementedError("该方法只为定义基本的函数接口，不可直接调用，请使用子类实现的方法")
+
 
 class ChiMerge(Discretization):
     """
     卡方分箱法
     """
 
-    def dsct(self, dat: pd.DataFrame, var_name: str, target: str):
-        dti, var_name, is_numeric, mapping = self._init_data(dat, var_name, target)
+    def dsct(self, data: pd.DataFrame, var_name: str, target: str):
+        dti, var_name, is_numeric, mapping = self._init_data(data, var_name, target)
 
         time0 = time.time()
 
@@ -264,12 +242,12 @@ class BestKS(Discretization):
     Best-KS 分箱法
     """
 
-    def dsct(self, dat: pd.DataFrame, col: str, target: str):
+    def dsct(self, data: pd.DataFrame, col: str, target: str):
         # todo 基于卡方分箱法实现特征离散化
         print("bestKS分箱法被调用")
 
 
-class Univariate(object):
+class Kit(object):
     """
     分装单变量分析的基本工具类
     """
@@ -281,6 +259,33 @@ class Univariate(object):
         self.precision = precision
         self.print_process = print_process
         self.is_numeric = True
+
+    def make_bin(self, data: pd.DataFrame, var_name: list, cond, suffix="_bin"):
+        """
+        根据分箱的结果，计算
+        """
+        var_name_new = f"{var_name}{suffix}"
+        if isinstance(cond, list):
+            data[var_name_new] = pd.cut(data[var_name], cond, duplicates='drop', precision=self.precision)
+        elif isinstance(cond, dict):
+            mapping = pd.Series(cond).reset_index().rename({"index": var_name, 0: var_name_new})
+            data = data.merge(mapping, on=var_name)
+        else:
+            raise ValueError("参数cond的类型只能为list或者dict")
+        return data[var_name_new]
+
+    def group_rs(self, data, group, sum_col=[], count_col=[], rate_tupes=[]):
+        grouped = data.groupby(group)
+        grouped_count = grouped[count_col].count()
+        grouped_sum = grouped[sum_col].sum()
+        grouped = pd.concat([grouped_count, grouped_sum], axis=1)
+        for tup in rate_tupes:
+            size = len(tup)
+            if size == 3:
+                grouped[tup[2]] = grouped[tup[0]] / grouped[tup[1]]
+            if size == 2:
+                grouped[tup[1]] = grouped[tup[0]] / grouped[tup[0]].sum()
+        return grouped
 
     def base_info(elf, dat: pd.DataFrame, var_list: list, target: str):
         pass
